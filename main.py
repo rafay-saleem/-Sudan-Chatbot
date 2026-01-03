@@ -3,55 +3,113 @@ from difflib import get_close_matches
 from transformers import pipeline
 import pdfplumber
 import os
+import time
 
-
+# ====== PAGE CONFIG ======
 st.set_page_config(
     page_title="Sudan AI Chatbot",
-    page_icon="🌍",
+    page_icon="🕶️",
     layout="centered"
 )
 
-# ====== CUSTOM STYLING ======
+# ====== CUSTOM STYLING (MAFIA LOOK + NEON ANIMATION) ======
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
 
 html, body, [class*="css"] {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Orbitron', sans-serif;
+    background-color: #0b0c10;
+    color: #c5c6c7;
 }
 
-.main {
-    background-color: #0f172a;
-    color: #e5e7eb;
-}
-
+/* Neon header glow */
 .title {
     font-size: 3rem;
     font-weight: 700;
-    color: #38bdf8;
+    color: #66fcf1;
     text-align: center;
+    text-shadow: 0 0 10px #45a29e, 0 0 20px #45a29e;
     margin-bottom: 0.2em;
+    animation: neonGlow 1.5s ease-in-out infinite alternate;
 }
 
 .subtitle {
     font-size: 1.4rem;
     font-weight: 600;
-    color: #facc15;
+    color: #f1c40f;
     text-align: center;
+    text-shadow: 0 0 5px #f39c12;
 }
 
 .tagline {
     font-size: 1rem;
-    color: #cbd5f5;
+    color: #95a5a6;
     text-align: center;
     margin-top: 0.8em;
 }
 
 hr {
     border: none;
-    height: 1px;
-    background: linear-gradient(to right, #38bdf8, #6366f1);
+    height: 2px;
+    background: linear-gradient(to right, #66fcf1, #45a29e);
     margin: 1.5em 0;
+    box-shadow: 0 0 10px #45a29e;
+}
+
+/* Chat bubbles */
+.user-msg {
+    background-color:#1f2833; 
+    color:#66fcf1;
+    padding:10px; 
+    border-radius:10px; 
+    text-align:right; 
+    margin:5px 0;
+    max-width: 80%;
+    word-wrap: break-word;
+}
+
+.bot-msg {
+    background-color:#45a29e; 
+    color:#0b0c10;
+    padding:10px; 
+    border-radius:10px; 
+    text-align:left; 
+    margin:5px 0;
+    max-width: 80%;
+    word-wrap: break-word;
+    animation: neonGlow 2s ease-in-out infinite alternate;
+}
+
+/* Button style */
+.stButton>button {
+    background-color: #1f2833;
+    color: #66fcf1;
+    border: 2px solid #45a29e;
+    border-radius: 12px;
+    padding: 0.5em 1.2em;
+    font-weight: 700;
+    transition: all 0.3s ease;
+}
+
+.stButton>button:hover {
+    background-color: #45a29e;
+    color: #0b0c10;
+    transform: scale(1.05);
+    box-shadow: 0 0 10px #66fcf1;
+}
+
+/* Neon glow animation */
+@keyframes neonGlow {
+    from { text-shadow: 0 0 5px #45a29e, 0 0 10px #45a29e; }
+    to { text-shadow: 0 0 20px #66fcf1, 0 0 30px #66fcf1; }
+}
+
+/* Scrollable chat window */
+#chat-container {
+    max-height: 500px;
+    overflow-y: auto;
+    padding-right: 10px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -59,17 +117,12 @@ hr {
 # ====== HEADER ======
 st.markdown('<div class="title">🌍 Sudan AI Chatbot</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">Developed by Rafay Boss 🚀</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="tagline">Ask in <b>English | Roman English | اردو</b> (PDF + AI fallback)</div>',
-    unsafe_allow_html=True
-)
-
+st.markdown('<div class="tagline">Ask in <b>English | Roman English | اردو</b> (PDF + AI fallback)</div>', unsafe_allow_html=True)
 st.markdown("<hr>", unsafe_allow_html=True)
 
-
-# =========================
-# INTENTS & RESPONSES
-# =========================
+# ====== INTENTS & RESPONSES (FULL ORIGINAL) ======
+# Paste your full intents, responses, related_facts here (same as previous full version)
+# For brevity, not repeating them here, just reuse your previous full lists.
 intents = {
     "independence": ["sudan independence", "1956", "anglo egyptian", "egypt monarchy 1952", "sudanization 1953", "1 january 1956", "sudan free without war", "independence date"],
     "divide_break": ["sudan break", "north south divide", "culture religion different", "north muslim", "south christian", "discrimination"],
@@ -122,21 +175,17 @@ related_facts = {
     "second_civil_war": "Related: ~2 million dead, 4-5 million displaced. Led by John Garang. CPA 2005 ended, South Sudan 2011.",
 }
 
-# =========================
-# LANGUAGE DETECTION
-# =========================
+# ====== LANGUAGE DETECTION ======
 def detect_language(text):
     text = text.lower()
     if any('\u0600' <= ch <= '\u06FF' for ch in text):
         return "urdu"
-    roman_words = ["hai","kya","ka","ki","ke","nahi","ho","raha","tha","thi","se","ne","ko","aur","ku","bani","howa","azad","huan","hogi","kase","kb","hua"]
+    roman_words = ["hai","kya","ka","ki","ke","nahi","ho","raha","tha","thi","se","ne","ko","aur","bani","howa","azad","huan","hogi","kase","kb","hua"]
     if sum(1 for w in roman_words if w in text) >= 1:
         return "roman"
     return "english"
 
-# =========================
-# INTENT MATCHING (FUZZY)
-# =========================
+# ====== INTENT MATCHING ======
 def detect_intent(text):
     text = text.lower()
     for intent, keywords in intents.items():
@@ -145,9 +194,7 @@ def detect_intent(text):
             return intent
     return "unknown"
 
-# =========================
-# PDF LOADING FUNCTION
-# =========================
+# ====== PDF LOADING ======
 def load_pdf_text(file_path):
     pdf_text = ""
     if os.path.exists(file_path):
@@ -158,66 +205,43 @@ def load_pdf_text(file_path):
                     pdf_text += txt + "\n"
     return pdf_text.lower()
 
-# Load PDF
 pdf_path = "Circumstances of Sudan.pdf"
 knowledge_base = load_pdf_text(pdf_path)
 
-# =========================
-# AI FALLBACK
-# =========================
+# ====== AI FALLBACK ======
 qa_pipeline = pipeline("question-answering", model="distilbert-base-uncased-distilled-squad")
 
-# =========================
-# STREAMLIT UI (MODERNIZED)
-# =========================
-st.set_page_config(page_title="Sudan Research Chatbot", page_icon="🌍", layout="wide")
-
-# --- Custom CSS ---
-st.markdown("""
-<style>
-.stApp {background-color: #F2F3F4; font-family: 'Arial', sans-serif;}
-.user-msg {background-color:#85C1E9; padding:10px; border-radius:10px; text-align:right; margin:5px 0;}
-.bot-msg {background-color:#ABEBC6; padding:10px; border-radius:10px; text-align:left; margin:5px 0;}
-</style>
-""", unsafe_allow_html=True)
-
-# --- Header ---
-st.markdown("<h1 style='text-align: center; color: #2C3E50;'>🌍 Sudan AI Chatbot</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #34495E;'>Developed by <b>Rafay Boss 🚀</b></p>", unsafe_allow_html=True)
-st.markdown("---")
-st.markdown("Ask in **English | Roman English | اردو** (PDF + AI fallback)")
-
+# ====== SESSION STATE ======
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- Display chat ---
+# ====== SCROLLABLE CHAT CONTAINER ======
+st.markdown('<div id="chat-container">', unsafe_allow_html=True)
 for message in st.session_state.messages:
     role_class = "user-msg" if message["role"]=="user" else "bot-msg"
     st.markdown(f"<div class='{role_class}'>{message['content']}</div>", unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
-# --- User input ---
-user_input = st.text_input("Type your question here...", key="user_input", placeholder="Ask in English | Roman | Urdu")
+# ====== MULTI-LINE USER INPUT ======
+user_input = st.text_area("Type your question here...", key="user_input", placeholder="Ask in English | Roman | Urdu", height=70)
 
-if user_input:
+# ====== PROCESS INPUT ======
+if st.button("Send") and user_input.strip() != "":
     st.session_state.messages.append({"role":"user","content":user_input})
-
-
-# --- Process input ---
-if st.session_state.messages and st.session_state.messages[-1]["role"]=="user":
-    user_text = st.session_state.messages[-1]["content"]
-    lang = detect_language(user_text)
-    intent = detect_intent(user_text)
-
+    lang = detect_language(user_input)
+    intent = detect_intent(user_input)
+    
+    # Generate bot reply
     if intent != "unknown" and intent in responses:
-        if len(user_text.split()) <= 4:
+        if len(user_input.split()) <= 4:
             reply = responses[intent][lang].split(".")[0] + "."
         else:
-            reply = responses[intent][lang]  
+            reply = responses[intent][lang]
             if intent in related_facts:
                 reply += "\n\n" + related_facts[intent]
     else:
         try:
-            qa = qa_pipeline(question=user_text, context=knowledge_base)
+            qa = qa_pipeline(question=user_input, context=knowledge_base)
             reply = qa['answer']
         except:
             reply = {
@@ -226,5 +250,13 @@ if st.session_state.messages and st.session_state.messages[-1]["role"]=="user":
                 "urdu":"میں موضوع سمجھ رہا ہوں، لیکن یہ سوال ابھی مکمل طور پر میپ نہیں ہوا۔"
             }[lang]
 
+    # Typing effect simulation
+    bot_message_placeholder = st.empty()
+    bot_text = ""
+    for char in reply:
+        bot_text += char
+        bot_message_placeholder.markdown(f"<div class='bot-msg'>{bot_text}</div>", unsafe_allow_html=True)
+        time.sleep(0.01)  # Adjust typing speed
+    
     st.session_state.messages.append({"role":"assistant","content":reply})
-    st.experimental_rerun()
+    st.session_state.user_input = ""
