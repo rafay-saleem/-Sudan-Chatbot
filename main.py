@@ -3,6 +3,8 @@ import pdfplumber
 import re
 import time
 import os
+from difflib import get_close_matches
+from transformers import pipeline
 
 # ====== PAGE CONFIG ======
 st.set_page_config(
@@ -15,8 +17,8 @@ st.set_page_config(
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
-html, body, [class*="css"] { font-family:'Orbitron', sans-serif; background-color:#0b0c10; color:#f5f5f5; }
 
+html, body, [class*="css"] { font-family:'Orbitron', sans-serif; background-color:#0b0c10; color:#f5f5f5; }
 .title { font-size:3rem; font-weight:700; color:#ff4c4c; text-align:center; text-shadow:0 0 10px #ff0000,0 0 20px #ff4c4c; animation: neonGlow 1.5s ease-in-out infinite alternate;}
 .subtitle {font-size:1.3rem; font-weight:600; color:#ff6b6b; text-align:center;}
 .tagline {font-size:1rem; color:#ff7f7f; text-align:center;}
@@ -31,10 +33,10 @@ hr {border:none; height:2px; background:linear-gradient(to right,#ff4c4c,#ff0000
 input[type=text] {background-color:#1a0000;color:#ff4c4c;border:2px solid #ff0000;border-radius:12px;padding:10px;font-weight:600;width:100%;}
 
 @keyframes neonGlow { from {text-shadow:0 0 5px #ff4c4c,0 0 10px #ff0000;} 
-    to {text-shadow:0 0 20px #ff6b6b,0 0 30px #ff0000;} }
+to {text-shadow:0 0 20px #ff6b6b,0 0 30px #ff0000;} }
 
 #chat-container { max-height:500px; overflow-y:auto; padding-right:10px; }
-#related-container { display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; }
+#related-container { display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; position:sticky; bottom:0; background:#0b0c10; padding:5px; border-top:1px solid #ff0000; }
 .related-btn { background-color:#1a0000;color:#ff4c4c;border:2px solid #ff0000;border-radius:12px;padding:5px 10px;font-weight:600; cursor:pointer; }
 .related-btn:hover { background-color:#ff0000;color:#0b0c10; transform:scale(1.05); }
 </style>
@@ -43,36 +45,43 @@ input[type=text] {background-color:#1a0000;color:#ff4c4c;border:2px solid #ff000
 # ====== HEADER ======
 st.markdown('<div class="title">🌍 Sudan AI Chatbot</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">Developed by Rafay Boss 🚀</div>', unsafe_allow_html=True)
-st.markdown('<div class="tagline">Ask in <b>English | Roman English | Urdu</b> (PDF knowledge only)</div>', unsafe_allow_html=True)
+st.markdown('<div class="tagline">Ask in <b>English | Roman English | Urdu</b> (PDF + AI fallback)</div>', unsafe_allow_html=True)
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # ====== PDF LOADING ======
 def load_pdf(file_path):
     text = ""
-    if not file_path or not os.path.exists(file_path):
-        return ""
-    with pdfplumber.open(file_path) as pdf:
-        for page in pdf.pages:
-            ptxt = page.extract_text()
-            if ptxt:
-                text += re.sub(r'\n+', '\n', ptxt) + "\n"
+    if os.path.exists(file_path):
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                txt = page.extract_text()
+                if txt:
+                    text += re.sub(r'\n+', '\n', txt)
     return text.lower()
 
 pdf_path = "Circumstances of Sudan.pdf"
 knowledge_base = load_pdf(pdf_path)
-sentences = knowledge_base.split('\n')
+pdf_sentences = knowledge_base.split('\n')
+
+# ====== AI FALLBACK ======
+qa_pipeline = pipeline("question-answering", model="distilbert-base-uncased-distilled-squad")
 
 # ====== LANGUAGE DETECTION ======
 def detect_language(text):
-    text = text.strip()
-    if any('\u0600' <= c <= '\u06FF' for c in text):
-        return "urdu"
+    if any('\u0600' <= c <= '\u06FF' for c in text): return "urdu"
     roman_words = ["hai","kya","se","aur","nahi","ko","ki","ka","ke","kaun","kab","hae","ha"]
-    if any(w in text.lower() for w in roman_words):
-        return "roman"
+    if any(w in text.lower() for w in roman_words): return "roman"
     return "english"
 
-# ====== RELATED TOPICS ======
+# ====== INTENTS + RELATED TOPICS ======
+intents = {
+    "history": ["history of sudan","pre-independence","first cold war","independence 1956","north south divide","civil war","post-independence","leaders","generals","resources","coups","oil","rsf","sharia","south sudan"],
+    "rsf": ["rsf origin","rapid support forces","janjaweed","rsf formed","rsf history","rsf conflict"],
+    "sharia": ["sharia law","1983 sharia","nimeiri sharia","hudood laws","sharia imposed"],
+    "south sudan": ["south sudan independence","2011 south sudan","secession","south autonomy"],
+    "oil": ["oil divide","china oil pipeline","north control oil","south resources","oil disputes","oil revenue","resources control"],
+}
+
 related_topics = {
     "rsf": ["RSF origin","2019 conflict","Janjaweed","Government operations"],
     "sharia": ["Sharia law","1983 Nimeiri","Hudood laws","Second Civil War"],
@@ -81,7 +90,7 @@ related_topics = {
     "civil war": ["First Civil War","Second Civil War","Anyanya","Addis Ababa Agreement"]
 }
 
-# ====== SESSION SAFE ======
+# ====== SESSION STATE ======
 if "messages" not in st.session_state: st.session_state.messages = []
 if "last_user_input" not in st.session_state: st.session_state.last_user_input = ""
 
@@ -95,58 +104,69 @@ def show_chat():
 
 show_chat()
 
-# ====== USER INPUT ======
-user_input = st.text_input("💬 Type your question here...", key="user_input")
-
 # ====== HELPER FUNCTIONS ======
-def find_sentences(query):
+def find_pdf_answer(query):
     query_words = re.findall(r'\w+', query.lower())
     matched = []
-    for s in sentences:
+    for s in pdf_sentences:
         if all(w in s for w in query_words):
-            matched.append(s.strip())
-    # Merge multiple paragraphs if more than 1 sentence
-    if len(matched) > 1:
-        return " ".join(matched[:5])  # top 5 matches
-    elif matched:
-        return matched[0]
-    else:
-        return ""
+            matched.append(s)
+    if matched:
+        return " ".join(matched[:5])
+    return ""
+
+def detect_intent(query):
+    q = query.lower()
+    for intent, keywords in intents.items():
+        for k in keywords:
+            if k in q: return intent
+        if get_close_matches(q, keywords, n=1, cutoff=0.6): return intent
+    return "unknown"
 
 def suggest_related(query):
-    query_lower = query.lower()
     suggestions = []
     for key, vals in related_topics.items():
-        if key in query_lower:
+        if key in query.lower():
             suggestions.extend(vals)
-    return list(dict.fromkeys(suggestions))[:5]  # max 5 unique suggestions
+    return list(dict.fromkeys(suggestions))[:5]
 
 # ====== PROCESS INPUT ======
 def process_input(query):
-    if query.strip() == "" or query.strip() == st.session_state.last_user_input:
+    if not query.strip() or query.strip() == st.session_state.last_user_input:
         return
     st.session_state.last_user_input = query.strip()
     st.session_state.messages.append({"role":"user","content":query})
     lang = detect_language(query)
+    intent = detect_intent(query)
+    
+    # PDF FIRST
+    answer = find_pdf_answer(query)
 
-    # PDF SEARCH LOGIC
-    answer = find_sentences(query)
+    # AI FALLBACK
+    if not answer or len(answer)<20:
+        try:
+            qa = qa_pipeline(question=query, context=knowledge_base)
+            if qa['score'] >= 0.2:
+                answer = qa['answer']
+        except:
+            pass
+
     if not answer:
         answer = {"english":"I have no info about that.",
                   "roman":"Mujhe iske bare mein info nahi mili.",
                   "urdu":"مجھے اس کے بارے میں معلومات نہیں ملی۔"}[lang]
 
-    # ====== TYPING EFFECT ======
+    # TYPING EFFECT
     placeholder = st.empty()
-    txt = ""
+    txt=""
     for ch in answer:
-        txt += ch
+        txt+=ch
         placeholder.markdown(f"<div class='bot-msg'>{txt}</div>", unsafe_allow_html=True)
         time.sleep(0.005)
 
     st.session_state.messages.append({"role":"assistant","content":answer})
 
-    # ====== RELATED QUESTIONS ======
+    # RELATED QUESTIONS
     suggestions = suggest_related(query)
     if suggestions:
         st.markdown('<div id="related-container">', unsafe_allow_html=True)
@@ -155,7 +175,7 @@ def process_input(query):
                 process_input(q)
         st.markdown('</div>', unsafe_allow_html=True)
 
-process_input(user_input)
+process_input(st.text_input("💬 Type your question here...", key="user_input"))
 show_chat()
 
 # ====== AUTO SCROLL ======
