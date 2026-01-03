@@ -4,16 +4,68 @@ from transformers import pipeline
 import pdfplumber
 import os
 
+
 st.set_page_config(
-    page_title="Sudan Research Chatbot",
+    page_title="Sudan AI Chatbot",
     page_icon="🌍",
     layout="centered"
 )
 
-st.title("🌍 Sudan AI Chatbot")
-st.markdown("### Developed by **Rafay Boss 🚀**")
-st.markdown("Ask in **English | Roman English | اردو** (PDF + AI fallback)")
-st.markdown("---")
+# ====== CUSTOM STYLING ======
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Poppins', sans-serif;
+}
+
+.main {
+    background-color: #0f172a;
+    color: #e5e7eb;
+}
+
+.title {
+    font-size: 3rem;
+    font-weight: 700;
+    color: #38bdf8;
+    text-align: center;
+    margin-bottom: 0.2em;
+}
+
+.subtitle {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #facc15;
+    text-align: center;
+}
+
+.tagline {
+    font-size: 1rem;
+    color: #cbd5f5;
+    text-align: center;
+    margin-top: 0.8em;
+}
+
+hr {
+    border: none;
+    height: 1px;
+    background: linear-gradient(to right, #38bdf8, #6366f1);
+    margin: 1.5em 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ====== HEADER ======
+st.markdown('<div class="title">🌍 Sudan AI Chatbot</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Developed by Rafay Boss 🚀</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="tagline">Ask in <b>English | Roman English | اردو</b> (PDF + AI fallback)</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown("<hr>", unsafe_allow_html=True)
+
 
 # =========================
 # INTENTS & RESPONSES
@@ -148,7 +200,7 @@ user_input = st.text_input("Type your question here...", key="user_input", place
 
 if user_input:
     st.session_state.messages.append({"role":"user","content":user_input})
-    st.experimental_rerun()
+
 
 # --- Process input ---
 if st.session_state.messages and st.session_state.messages[-1]["role"]=="user":
